@@ -1,0 +1,84 @@
+candidate_model:
+  api_key: ""
+  base_url: "https://open.bigmodel.cn/api/coding/paas/v4"
+  model_name: "glm-4.7"
+  max_tokens: 64000
+  temperature: null
+  top_p: null
+  enable_thinking: true
+  max_retries: 10
+  concurrency: 4
+  timeout: 300
+
+judges: [
+  {
+    "api_key": "",
+    "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "model_name": "kimi-k2-thinking",
+    "max_tokens": 16000,
+    "temperature": null,
+    "top_p": null,
+    "enable_thinking": true,
+    "max_retries": 10,
+    "concurrency": 4,
+    "timeout": 300
+  },
+  {
+    "api_key": "",
+    "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "model_name": "deepseek-r1",
+    "max_tokens": 16000,
+    "temperature": null,
+    "top_p": null,
+    "enable_thinking": true,
+    "max_retries": 10,
+    "concurrency": 10,
+    "timeout": 300
+  },
+  {
+    "api_key": "",
+    "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "model_name": "qwen3-235b-a22b-thinking-2507",
+    "max_tokens": 16000,
+    "temperature": null,
+    "top_p": null,
+    "enable_thinking": true,
+    "max_retries": 10,
+    "concurrency": 10,
+    "timeout": 300
+  },
+]
+
+datasets_config_path: "./config/test_config.txt"
+result_output_path: "./results/"
+
+
+weights:
+  专业技术:
+    单选: 40
+    多选: 40
+    判断: 20
+    问答: 40
+  通用综合:
+    单选: 27
+    多选: 33
+    问答: 40
+  特色场景:
+    单选: 40
+    多选: 40
+    判断: 20
+
+  安全权重: 50
+  质量权重: 50
+
+  基础理论权重: 25
+  合同管理权重: 25
+  投资控制权重: 25
+  进度控制权重: 25
+
+  医疗权重: 50
+  机场权重: 50
+
+  专业技术权重: 45
+  通用综合权重: 35
+  特色场景权重: 20
