@@ -1,4 +1,4 @@
-# “盈科·绳墨” 监理行业大模型测评集1.0
+# 盈科·绳墨” 监理行业大模型测评集1.0
 
 <p align="center">
   <img src="assets/logo.png" alt="Logo" width="1000" />
