@@ -97,10 +97,9 @@ Adopts Zero-shot and generative evaluation. No problem-solving templates are pro
 ## Model Evaluation Result Analysis
 
 ### 1. Mainstream LLM Selection
-18 mainstream LLMs were selected for evaluation (including models with/without deep thinking enabled), with parameters ranging from 8B to over 100B, covering both open-source and closed-source models.
+14 mainstream LLMs were selected for evaluation (including models with/without deep thinking enabled), with parameters ranging from 20B to over 100B, covering both open-source and closed-source models.
 | Model Name | Deep Thinking | Parameters | Open Source |
 | :--- | :--- | :--- | :--- |
-| qwen3-8b | Yes | 8B | Yes |
 | qwen3-30b-a3b-thinking-2507 | Yes | 30B (Total), 3B (Active) | Yes |
 | qwen3-30b-a3b-instruct-2507 | No | 30B (Total), 3B (Active) | Yes |
 | qwen3-32b | Yes | 32B | Yes |
@@ -132,9 +131,8 @@ Comparing models with over 100 billion parameters. Except for Qwen3-Max and doub
 </p>
 
 ### 3. Small and Medium Parameter Model Leaderboard
-Comparing open-source models with 8B-32B parameters, suitable for local deployment with limited resources.
+Comparing open-source models with 20B-32B parameters, suitable for local deployment with limited resources.
 - **Leapfrog Performance**: Qwen3-32B (Deep Thinking) scored 65.63, surpassing all small and medium parameter models and some large models, offering high cost-effectiveness.
-- **Entry-level Benchmark**: Qwen3-8B (Deep Thinking), with a score of 59.91, is rare for an edge-side model and suitable for low-precision or fine-tuning scenarios.
 - **Acclimatization Issues**: nvidia-nemotron-3-30b-a3b and gpt-oss-20b perform poorly in Chinese supervision.
 
 <p align="center">
@@ -144,18 +142,7 @@ Comparing open-source models with 8B-32B parameters, suitable for local deployme
   <img src="assets/small_model_results.png" alt="Small Parameter Model Evaluation Results" width="800" />
 </p>
 
-### 4. Large vs. Small Parameter Models
-Comparing the Qwen3 series (8B -> 32B -> 235B -> Max), scores increase with parameters.
-- **Scaling Law**: The slope from 8B to 32B is the steepest, indicating the highest ROI; 235B and above consume huge resources, suitable only for extreme precision.
-
-<p align="center">
-  <img src="assets/qwen3_series_performance.png" alt="Qwen3 Series Performance Trend" width="800" />
-</p>
-<p align="center">
-  <img src="assets/same_series_large_vs_small.png" alt="Comparison of Large and Small Parameters in the Same Series" width="800" />
-</p>
-
-### 5. Thinking vs. Non-Thinking Mode
+### 4. Thinking vs. Non-Thinking Mode
 Scores of all models increase significantly after enabling "Deep Thinking (CoT)".
 - **Significant Improvement**: DeepSeek-v3.2 improved most (+7.5 points), proving CoT is essential in supervision.
 - **Cost of "Slow Thinking"**: CoT slows down response speed, requiring trade-offs based on scenarios.
@@ -167,7 +154,7 @@ Scores of all models increase significantly after enabling "Deep Thinking (CoT)"
   <img src="assets/thinking_vs_non_thinking.png" alt="Thinking vs Non-Thinking Comparison" width="800" />
 </p>
 
-### 6. Score Comparison in Different Sub-fields (Taking Kimi-k2 as Example)
+### 5. Score Comparison in Different Sub-fields (Taking Kimi-k2 as Example)
 - **Professional Technology**: "Quality" (~71.5) is better than "Safety" (~67.1).
 - **General Comprehensive**: Avg ~79.4, the strongest sector, benefiting from text understanding capabilities and potential public training data.
 
@@ -175,7 +162,7 @@ Scores of all models increase significantly after enabling "Deep Thinking (CoT)"
   <img src="assets/kimi_k2_detailed_analysis.png" alt="Detailed Analysis of Kimi-K2 Scores in All Dimensions" width="800" />
 </p>
 
-### 7. Domestic vs. Foreign Models
+### 6. Domestic vs. Foreign Models
 Comparing Qwen3-32B with foreign models of similar size (Nemotron-30B, GPT-OSS-20B).
 - **Complete Domination**: Qwen3-32B wins in all dimensions.
 - **Professional Barrier**: Foreign models fail in "Professional Technology", proving the barriers of foreign models in this vertical domain.
@@ -232,7 +219,7 @@ The configuration file (e.g., `config/test.yaml`) includes:
 3. **Model Inference**: Concurrently call the candidate model to generate answers.
 4. **Scoring**:
    - Objective questions (Single/Multi-choice, True/False): Automatically scored against standard answers.
-   - Subjective questions (QA): Scored by judge models (e.g., GPT-4).
+   - Subjective questions (QA): Scored by judge models.
 5. **Report Generation**: Output `scores.csv` (detailed scores) and `report.md` (analysis report).
 
 ## Notes
