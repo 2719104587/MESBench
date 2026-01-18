@@ -1,4 +1,4 @@
-# Norma MESBench 1.0
+# Norma-MESBench 1.0
 
 <p align="center">
   <img src="assets/logo.png" alt="Logo" width="1000" />
