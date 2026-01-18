@@ -228,10 +228,10 @@ The configuration file (e.g., `config/test.yaml`) includes:
 - If no valid judge model is configured, QA questions will not be included in the final score.
 
 ## Future Plans
-This project is the first open-source evaluation benchmark attempt for the supervision industry. Please bear with any shortcomings. The Shanghai Jianke Consulting Team has plans for more evaluation sets and other AI projects in the future. For further inquiries, please contact the team at: wuhao@jkec.com.cn
+This project is the first open-source evaluation benchmark attempt for the supervision industry. Please bear with any shortcomings. The SRIBS Consulting Group has plans for more evaluation sets and other AI projects in the future. For further inquiries, please contact the team at: wuhao@jkec.com.cn
 
 ## License
 This project is licensed under the [CC BY-NC License](https://creativecommons.org/licenses/by-nc/4.0/). It is intended for non-commercial research use only.
 
 ## Acknowledgements
-This project is released by the Shanghai Jianke Consulting Team. We hereby express our gratitude to Shanghai Jianke Consulting Group, Shanghai Jianke Engineering Consulting Co., Ltd., and all colleagues who participated in the project construction.
+This project is released by the SRIBS Consulting Group. We hereby express our gratitude to SRIBS Consulting Group Co., Ltd., SRIBS Engineering Consulting Co., Ltd., and all colleagues who participated in the project construction.
