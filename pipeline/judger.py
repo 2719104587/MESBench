@@ -2,7 +2,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import asyncio
 from tqdm import tqdm
 from .llm import retry_llm
-from .prompt import qa_judge_prompt
+from .prompt import format_qa_judge_prompt
 
 
 def _parse_int(s: str) -> Optional[int]:
@@ -21,11 +21,13 @@ def _parse_int(s: str) -> Optional[int]:
         return None
 
 
-async def judge_one(item: Dict[str, Any], judge_cfg: Dict[str, Any]) -> Tuple[Optional[int], Dict[str, int]]:
+async def judge_one(
+    item: Dict[str, Any], judge_cfg: Dict[str, Any], en_mode: bool
+) -> Tuple[Optional[int], Dict[str, Any], Dict[str, int]]:
     q = str(item.get("问题") or "")
     rubric = str(item.get("得分比例") or "")
     ans = str(item.get("模型回答") or "")
-    prompt = qa_judge_prompt.format(q, rubric, ans)
+    prompt = format_qa_judge_prompt(q, rubric, ans, en_mode=en_mode)
 
     def run():
         r, c, u = retry_llm(
@@ -40,21 +42,28 @@ async def judge_one(item: Dict[str, Any], judge_cfg: Dict[str, Any]) -> Tuple[Op
             max_retries=judge_cfg.get("max_retries") or 3,
             timeout=judge_cfg.get("timeout") or 60.0,
         )
-        return c or "", u
+        return r or "", c or "", u
 
-    c, u = await asyncio.to_thread(run)
+    r, c, u = await asyncio.to_thread(run)
     usage_dict = {}
     if u:
         usage_dict = {
             "completion_tokens": u.completion_tokens,
             "prompt_tokens": u.prompt_tokens,
-            "total_tokens": u.total_tokens
+            "total_tokens": u.total_tokens,
         }
-    return _parse_int(c), usage_dict
+    score = _parse_int(c)
+    detail = {
+        "提示词": prompt,
+        "思考过程": r,
+        "模型回答": c,
+        "模型回答_int": score,
+    }
+    return score, detail, usage_dict
 
 
 async def judge_items(
-    items: List[Dict[str, Any]], judges: List[Dict[str, Any]]
+    items: List[Dict[str, Any]], judges: List[Dict[str, Any]], en_mode: bool = False
 ) -> Tuple[List[Optional[float]], Dict[str, Dict[str, int]]]:
     if not judges:
         return [None for _ in items], {}
@@ -63,25 +72,30 @@ async def judge_items(
     total_tasks = len(items) * len(judges)
     pbar = tqdm(total=total_tasks, desc="Judging QA", unit="task")
 
-    judge_usages = {j["model_name"]: {"completion_tokens": 0, "prompt_tokens": 0, "total_tokens": 0} for j in judges}
+    judge_usages = {
+        j["model_name"]: {"completion_tokens": 0, "prompt_tokens": 0, "total_tokens": 0}
+        for j in judges
+    }
 
     async def score_item(it: Dict[str, Any]) -> Optional[float]:
         scores: List[int] = []
-        
+
         async def run_one_judge(j: Dict[str, Any]):
             async with sem:
-                s, u = await judge_one(it, j)
+                s, _detail, u = await judge_one(it, j, en_mode=en_mode)
                 pbar.update(1)
                 return s, u, j["model_name"]
 
         j_tasks = [run_one_judge(j) for j in judges]
         results = await asyncio.gather(*j_tasks)
-        
+
         for s, u, model_name in results:
             if s is not None:
                 scores.append(s)
             if u:
-                judge_usages[model_name]["completion_tokens"] += u.get("completion_tokens", 0)
+                judge_usages[model_name]["completion_tokens"] += u.get(
+                    "completion_tokens", 0
+                )
                 judge_usages[model_name]["prompt_tokens"] += u.get("prompt_tokens", 0)
                 judge_usages[model_name]["total_tokens"] += u.get("total_tokens", 0)
 

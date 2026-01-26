@@ -3,7 +3,8 @@ import json
 import csv
 import asyncio
 from typing import Any, Dict, List, Tuple, Optional
-from .judger import judge_items
+from tqdm import tqdm
+from .judger import judge_one
 
 
 def _read_all_json(root: str) -> List[Dict[str, Any]]:
@@ -14,11 +15,15 @@ def _read_all_json(root: str) -> List[Dict[str, Any]]:
             if not fn.endswith(".json"):
                 continue
             fp = os.path.join(r, fn)
+            rel = os.path.normpath(os.path.relpath(fp, base))
             try:
                 with open(fp, "r", encoding="utf-8") as f:
                     data = json.load(f)
                     for it in data:
-                        out.append(it)
+                        if isinstance(it, dict):
+                            x = dict(it)
+                            x["__source_relpath"] = rel
+                            out.append(x)
             except Exception:
                 continue
     return out
@@ -53,9 +58,9 @@ def _is_correct_judge(item: Dict[str, Any]) -> Optional[bool]:
 
     def norm(x: str) -> str:
         x = x.strip()
-        if x in ["正确", "对", "是"]:
+        if x in ["正确", "对", "是", "true", "True"]:
             return "正确"
-        if x in ["错误", "错", "否"]:
+        if x in ["错误", "错", "否", "false", "False"]:
             return "错误"
         return x
 
@@ -73,8 +78,150 @@ def _mean(xs: List[float]) -> float:
     return sum(xs) / len(xs) if xs else 0.0
 
 
+def _safe_rel(rel: str) -> str:
+    rel = (rel or "").replace("\\", os.sep)
+    rel = os.path.normpath(rel)
+    if not rel:
+        return "unknown.json"
+    if os.path.isabs(rel):
+        return os.path.basename(rel)
+    if rel == ".." or rel.startswith(".." + os.sep):
+        return os.path.basename(rel)
+    return rel
+
+
+async def _judge_items_cached(
+    items: List[Dict[str, Any]],
+    judges: List[Dict[str, Any]],
+    result_root: str,
+    en_mode: bool,
+) -> Tuple[List[Optional[float]], Dict[str, Dict[str, int]]]:
+    if not judges:
+        return [None for _ in items], {}
+
+    judge_usages = {
+        j["model_name"]: {"completion_tokens": 0, "prompt_tokens": 0, "total_tokens": 0}
+        for j in judges
+    }
+
+    sem_by_model = {
+        j["model_name"]: asyncio.Semaphore(max(1, int(j.get("concurrency") or 2)))
+        for j in judges
+    }
+
+    file_cache: Dict[str, Dict[str, Any]] = {}
+
+    def load_file_cache(judge_fp: str) -> Dict[str, Any]:
+        if judge_fp in file_cache:
+            return file_cache[judge_fp]
+        data: List[Dict[str, Any]] = []
+        if os.path.exists(judge_fp) and os.path.getsize(judge_fp) > 0:
+            try:
+                with open(judge_fp, "r", encoding="utf-8") as f:
+                    loaded = json.load(f)
+                if isinstance(loaded, list):
+                    data = [x for x in loaded if isinstance(x, dict)]
+            except Exception:
+                data = []
+        by_id = {str(x.get("id")): x for x in data if x.get("id") is not None}
+        file_cache[judge_fp] = {"data": data, "by_id": by_id, "dirty": False}
+        return file_cache[judge_fp]
+
+    async def run_one_missing(
+        it: Dict[str, Any], j: Dict[str, Any], entry: Dict[str, Any]
+    ):
+        async with sem_by_model[j["model_name"]]:
+            s, detail, u = await judge_one(it, j, en_mode=en_mode)
+            entry[j["model_name"]] = detail
+            if u:
+                judge_usages[j["model_name"]]["completion_tokens"] += u.get(
+                    "completion_tokens", 0
+                )
+                judge_usages[j["model_name"]]["prompt_tokens"] += u.get(
+                    "prompt_tokens", 0
+                )
+                judge_usages[j["model_name"]]["total_tokens"] += u.get(
+                    "total_tokens", 0
+                )
+            return s
+
+    missing_tasks: List[asyncio.Task] = []
+    missing_by_rel: Dict[str, int] = {}
+    total_by_rel: Dict[str, int] = {}
+
+    for it in items:
+        rel = _safe_rel(str(it.get("__source_relpath") or ""))
+        total_by_rel[rel] = total_by_rel.get(rel, 0) + 1
+        judge_fp = os.path.join(result_root, "judge", rel)
+        cache = load_file_cache(judge_fp)
+        qid = str(it.get("id"))
+        entry = cache["by_id"].get(qid)
+        if entry is None:
+            entry = {k: v for k, v in it.items() if k != "__source_relpath"}
+            cache["data"].append(entry)
+            cache["by_id"][qid] = entry
+            cache["dirty"] = True
+
+        for j in judges:
+            model_name = j["model_name"]
+            cached = entry.get(model_name)
+            cached_score = None
+            if isinstance(cached, dict):
+                cached_score = cached.get("模型回答_int")
+            if isinstance(cached_score, int):
+                continue
+            cache["dirty"] = True
+            missing_by_rel[rel] = missing_by_rel.get(rel, 0) + 1
+            missing_tasks.append(asyncio.create_task(run_one_missing(it, j, entry)))
+
+    for rel, n in total_by_rel.items():
+        if missing_by_rel.get(rel, 0) == 0:
+            print(f"Skipping judge {rel}, already done ({n} items).")
+
+    if missing_tasks:
+        pbar = tqdm(total=len(missing_tasks), desc="Judging QA (cached)", unit="task")
+
+        async def track(t: asyncio.Task):
+            try:
+                return await t
+            finally:
+                pbar.update(1)
+
+        await asyncio.gather(*[track(t) for t in missing_tasks])
+        pbar.close()
+
+    for judge_fp, cache in file_cache.items():
+        if not cache.get("dirty"):
+            continue
+        os.makedirs(os.path.dirname(judge_fp), exist_ok=True)
+        with open(judge_fp, "w", encoding="utf-8") as f:
+            json.dump(cache["data"], f, ensure_ascii=False, indent=2)
+
+    scores: List[Optional[float]] = []
+    for it in items:
+        rel = _safe_rel(str(it.get("__source_relpath") or ""))
+        judge_fp = os.path.join(result_root, "judge", rel)
+        cache = load_file_cache(judge_fp)
+        qid = str(it.get("id"))
+        entry = cache["by_id"].get(qid) or {}
+        xs: List[int] = []
+        for j in judges:
+            d = entry.get(j["model_name"])
+            if isinstance(d, dict) and isinstance(d.get("模型回答_int"), int):
+                xs.append(int(d.get("模型回答_int")))
+        if xs:
+            scores.append(sum(xs) / len(xs))
+        else:
+            scores.append(None)
+
+    return scores, judge_usages
+
+
 async def compute_scores(
-    result_root: str, judges: List[Dict[str, Any]], weights: Dict[str, Any]
+    result_root: str,
+    judges: List[Dict[str, Any]],
+    weights: Dict[str, Any],
+    en_mode: bool = False,
 ) -> Tuple[List[Dict[str, Any]], Dict[str, float], Dict[str, Any]]:
     items = _read_all_json(result_root)
     security: Dict[str, Dict[str, List[Dict[str, Any]]]] = {}
@@ -145,6 +292,29 @@ async def compute_scores(
             if blk:
                 general.setdefault(blk, []).append(it)
 
+    qa_score_by_key: Dict[Tuple[str, str], Optional[float]] = {}
+    if judges:
+        qa_all = [
+            x
+            for x in items
+            if str(x.get("题型")) == "问答题" and x.get("id") is not None
+        ]
+        if qa_all:
+            qs, usages = await _judge_items_cached(
+                qa_all, judges, result_root=result_root, en_mode=en_mode
+            )
+            merge_usage(usages)
+            for it, s in zip(qa_all, qs):
+                rel = _safe_rel(str(it.get("__source_relpath") or ""))
+                qa_score_by_key[(rel, str(it.get("id")))] = s
+
+    def qa_score(it: Dict[str, Any]) -> Optional[float]:
+        qid = it.get("id")
+        if qid is None:
+            return None
+        rel = _safe_rel(str(it.get("__source_relpath") or ""))
+        return qa_score_by_key.get((rel, str(qid)))
+
     w_pro = weights["专业技术"]
     w_gen = weights["通用综合"]
     w_spec = weights["特色场景"]
@@ -193,10 +363,10 @@ async def compute_scores(
                     [x for x in items_s if str(x.get("题型")) == "问答题"]
                 )
         qa_scores = []
-        if qa_type_items and judges:
-            qs, usages = await judge_items(qa_type_items, judges)
-            merge_usage(usages)
-            qa_scores = [x for x in qs if x is not None]
+        if qa_type_items and qa_score_by_key:
+            qa_scores = [
+                x for x in [qa_score(it) for it in qa_type_items] if x is not None
+            ]
         spec_mean = _mean(spec_scores)
         qa_mean = _mean(qa_scores)
         type_score = spec_mean * ((100 - w_pro["问答"]) / 100.0) + qa_mean * (
@@ -267,10 +437,10 @@ async def compute_scores(
                         [x for x in items_q if str(x.get("题型")) == "问答题"]
                     )
             qa_scores = []
-            if qa_sub_items and judges:
-                qs, usages = await judge_items(qa_sub_items, judges)
-                merge_usage(usages)
-                qa_scores = [x for x in qs if x is not None]
+            if qa_sub_items and qa_score_by_key:
+                qa_scores = [
+                    x for x in [qa_score(it) for it in qa_sub_items] if x is not None
+                ]
             item_mean = _mean(item_scores)
             qa_mean = _mean(qa_scores)
             sub_score = item_mean * ((100 - w_pro["问答"]) / 100.0) + qa_mean * (
@@ -317,10 +487,8 @@ async def compute_scores(
         )
         qa_items = [x for x in items_g if str(x.get("题型")) == "问答题"]
         qa_scores = []
-        if qa_items and judges:
-            qs, usages = await judge_items(qa_items, judges)
-            merge_usage(usages)
-            qa_scores = [x for x in qs if x is not None]
+        if qa_items and qa_score_by_key:
+            qa_scores = [x for x in [qa_score(it) for it in qa_items] if x is not None]
         qa_mean = _mean(qa_scores)
         blk_score = (
             w_gen["单选"] * sc + w_gen["多选"] * mc + w_gen["问答"] / 100.0 * qa_mean

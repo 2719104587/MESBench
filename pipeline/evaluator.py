@@ -4,31 +4,29 @@ import asyncio
 from typing import Any, Dict, List, Tuple
 from tqdm import tqdm
 from .llm import retry_llm
-from .prompt import single_choice_prompt, multi_choice_prompt, judge_prompt, qa_prompt
-from .dataset_loader import DataRoot
+from .prompt import format_question_prompt
 
 
-def _build_prompt(item: Dict[str, Any]) -> str:
-    t = str(item.get("题型"))
-    q = str(item.get("问题"))
-    if t == "单选题":
-        return single_choice_prompt.format(q)
-    if t == "多选题":
-        return multi_choice_prompt.format(q)
-    if t == "判断题":
-        return judge_prompt.format(q)
-    return qa_prompt.format(q)
+def _build_prompt(item: Dict[str, Any], en_mode: bool) -> str:
+    return format_question_prompt(item, en_mode=en_mode)
 
 
-def _rel_from_data(src: str) -> str:
-    try:
-        return os.path.relpath(src, DataRoot)
-    except Exception:
-        return os.path.basename(src)
+def _safe_rel(rel: str) -> str:
+    rel = (rel or "").replace("\\", os.sep)
+    rel = os.path.normpath(rel)
+    if not rel:
+        return "unknown.json"
+    if os.path.isabs(rel):
+        return os.path.basename(rel)
+    if rel == ".." or rel.startswith(".." + os.sep):
+        return os.path.basename(rel)
+    return rel
 
 
-async def _eval_one(item: Dict[str, Any], model_cfg: Dict[str, Any]) -> Dict[str, Any]:
-    prompt = _build_prompt(item)
+async def _eval_one(
+    item: Dict[str, Any], model_cfg: Dict[str, Any], en_mode: bool
+) -> Dict[str, Any]:
+    prompt = _build_prompt(item, en_mode=en_mode)
 
     def run() -> Tuple[str, str, Any]:
         r, c, u = retry_llm(
@@ -64,12 +62,19 @@ async def _eval_one(item: Dict[str, Any], model_cfg: Dict[str, Any]) -> Dict[str
 
 
 async def evaluate(
-    questions: List[Dict[str, Any]], model_cfg: Dict[str, Any], result_root: str
+    questions: List[Dict[str, Any]],
+    model_cfg: Dict[str, Any],
+    result_root: str,
+    en_mode: bool = False,
 ) -> Tuple[List[str], Dict[str, int]]:
     os.makedirs(result_root, exist_ok=True)
     groups: Dict[str, List[Dict[str, Any]]] = {}
     for rec in questions:
-        rel = _rel_from_data(rec["src"]) if rec.get("src") else "unknown.json"
+        rel = (
+            _safe_rel(rec.get("rel") or "")
+            if rec.get("rel")
+            else _safe_rel(os.path.basename(rec.get("src") or "unknown.json"))
+        )
         groups.setdefault(rel, []).append(rec["item"])
 
     sem = asyncio.Semaphore(int(model_cfg.get("concurrency") or 4))
@@ -103,7 +108,7 @@ async def evaluate(
 
         async def run_item(it: Dict[str, Any]):
             async with sem:
-                res = await _eval_one(it, model_cfg)
+                res = await _eval_one(it, model_cfg, en_mode=en_mode)
                 pbar.update(1)
                 return res
 

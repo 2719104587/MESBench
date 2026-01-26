@@ -50,6 +50,10 @@ judges: [
 ]
 
 datasets_config_path: "./config/test_config.txt"
+module_1_path: "./data/1专业技术"
+module_2_path: "./data/2通用综合"
+module_3_path: "./data/3特色场景"
+en_mode: false
 result_output_path: "./results/"
 
 

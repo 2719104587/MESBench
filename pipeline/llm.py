@@ -26,7 +26,7 @@ def openai_interface(
         temperature=temperature,
         max_tokens=max_tokens,
         top_p=top_p,
-        extra_body={"enable_thinking": enable_thinking},
+        extra_body={"enable_thinking": enable_thinking, "chat_template_kwargs": {"thinking": enable_thinking}},
         stream=True,
         stream_options={"include_usage": True},
         timeout=timeout,

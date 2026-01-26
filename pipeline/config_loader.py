@@ -48,6 +48,10 @@ def load_config(path: str) -> Dict[str, Any]:
         )
 
     datasets_config_path = _get(cfg, "datasets_config_path", None)
+    module_1_path = _get(cfg, "module_1_path", os.path.join(".", "data", "1专业技术"))
+    module_2_path = _get(cfg, "module_2_path", os.path.join(".", "data", "2通用综合"))
+    module_3_path = _get(cfg, "module_3_path", os.path.join(".", "data", "3特色场景"))
+    en_mode = bool(_get(cfg, "en_mode", False))
     result_output_path = _get(cfg, "result_output_path", os.path.join("results"))
 
     weights_raw = cfg.get("weights", {}) or {}
@@ -86,6 +90,10 @@ def load_config(path: str) -> Dict[str, Any]:
         "candidate_model": candidate_model,
         "judges": judges,
         "datasets_config_path": datasets_config_path,
+        "module_1_path": module_1_path,
+        "module_2_path": module_2_path,
+        "module_3_path": module_3_path,
+        "en_mode": en_mode,
         "result_output_path": result_output_path,
         "weights": weights,
     }

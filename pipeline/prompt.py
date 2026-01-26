@@ -14,6 +14,22 @@ single_choice_prompt = """
     3,除了要求回复的选项标号,其他内容务必不要回复。
 """
 
+single_choice_prompt_en = """
+# Role
+    You are a senior registered supervision engineer with over 20 years of experience. You are proficient in China's laws, regulations, standards, and codes for the construction industry, and you are also experienced in practical project management including quality control, safety supervision, schedule control, contract administration, cost/investment control, information management, communication, and coordination. You understand the differences and connections among these areas.
+
+## Task
+    Based on the question stem, analyze using relevant standards/codes without outputting any analysis, then output the correct option (single-choice).
+
+## Question
+{}
+
+## Requirements
+    1. Analyze each option and judge whether it is correct, but do not output the analysis.
+    2. Choose exactly one option. If the correct answer is A, reply with "A" only.
+    3. Do not output anything except the required option letter.
+"""
+
 
 multi_choice_prompt = """
 # 角色
@@ -31,6 +47,22 @@ multi_choice_prompt = """
     3,除了要求回复的选项标号,其他内容务必不要回复。
 """
 
+multi_choice_prompt_en = """
+# Role
+    You are a senior registered supervision engineer with over 20 years of experience. You are proficient in China's laws, regulations, standards, and codes for the construction industry, and you are also experienced in practical project management including quality control, safety supervision, schedule control, contract administration, cost/investment control, information management, communication, and coordination. You understand the differences and connections among these areas.
+
+## Task
+    Based on the question stem, analyze using relevant standards/codes without outputting any analysis, then output the correct option(s) (multiple-choice).
+
+## Question
+{}
+
+## Requirements
+    1. Analyze each option and judge whether it is correct, but do not output the analysis.
+    2. There may be one or more correct answers. Reply with all correct option letters. For example, if A, B, and C are correct, reply with "ABC".
+    3. Do not output anything except the required option letters.
+"""
+
 
 judge_prompt = """
 # 角色
@@ -46,6 +78,22 @@ judge_prompt = """
     1,请根据题目进行分析,判断题目中的说法是正确还是错误。
     2,每个问题仅回答正误即可,如果正确,回复"正确",如果错误,回复"错误"。
     3,除了要求回复的"正确"或"错误",其他内容务必不要回复。
+"""
+
+judge_prompt_en = """
+# Role
+    You are a senior registered supervision engineer with over 20 years of experience. You are proficient in China's laws, regulations, standards, and codes for the construction industry, and you are also experienced in practical project management including quality control, safety supervision, schedule control, contract administration, cost/investment control, information management, communication, and coordination. You understand the differences and connections among these areas.
+
+## Task
+    Based on the question stem, analyze using relevant standards/codes without outputting any analysis, then decide whether the statement is true or false.
+
+## Question
+{}
+
+## Requirements
+    1. Analyze the question and judge whether the statement is true or false.
+    2. Reply with "True" if correct, otherwise reply with "False". Reply with only one word.
+    3. Do not output anything except "True" or "False".
 """
 
 
@@ -68,6 +116,25 @@ qa_prompt = """
     6,术语规范,表述严谨: 使用工程建设领域的标准专业术语，避免口语化、模糊化的表达。
 """
 
+qa_prompt_en = """
+# Role
+    You are a senior registered supervision engineer with over 20 years of experience. You are proficient in China's laws, regulations, standards, and codes for the construction industry, and you are also experienced in practical project management including quality control, safety supervision, schedule control, contract administration, cost/investment control, information management, communication, and coordination. You understand the differences and connections among these areas.
+
+## Task
+    Based on the question stem, answer using relevant standards/codes without outputting any analysis, then output the final answer (Q&A).
+
+## Question
+{}
+
+## Requirements
+    1. Understand the question accurately and stay on point: identify the core knowledge point and answer the question directly without digression.
+    2. Conclusion first, clear stance: provide the conclusion/core answer first, then explain key points.
+    3. Sufficient basis, cite standards: cite relevant laws, technical standards, contract clauses, or management rules. Include the exact name of the document and clause number (e.g., "According to Clause 5.2.3 of GB/T 50319-2013 Code for Supervision of Construction Projects...").
+    4. Clear structure, highlighted key points: present in bullet/numbered points such as "First, Second, ..." or "(1), (2), ...".
+    5. Complete yet concise: cover main scoring points, avoid lengthy discussion, and use precise professional language.
+    6. Use proper terminology and rigorous wording: use standard professional terms and avoid colloquial/vague expressions.
+"""
+
 
 qa_judge_prompt = """
 # 角色
@@ -88,3 +155,39 @@ qa_judge_prompt = """
 ## 输出要求
     仅输出一个整数分值，范围0~100，不输出其他内容。
 """
+
+qa_judge_prompt_en = """
+# Role
+    You are an experienced senior registered supervision engineer acting as a judge. You must score strictly according to standards/codes and the scoring rubric.
+
+## Task
+    Based on the question and scoring rubric, provide a quantitative score for the answer as an integer from 0 to 100.
+
+## Question
+{}
+
+## Scoring Rubric
+{}
+
+## Model Answer
+{}
+
+## Output Requirement
+    Output only a single integer score in the range 0 to 100, and nothing else.
+"""
+
+
+def format_question_prompt(item, en_mode: bool = False) -> str:
+    t = str(item.get("题型"))
+    q = str(item.get("问题"))
+    if t == "单选题":
+        return (single_choice_prompt_en if en_mode else single_choice_prompt).format(q)
+    if t == "多选题":
+        return (multi_choice_prompt_en if en_mode else multi_choice_prompt).format(q)
+    if t == "判断题":
+        return (judge_prompt_en if en_mode else judge_prompt).format(q)
+    return (qa_prompt_en if en_mode else qa_prompt).format(q)
+
+
+def format_qa_judge_prompt(q: str, rubric: str, ans: str, en_mode: bool = False) -> str:
+    return (qa_judge_prompt_en if en_mode else qa_judge_prompt).format(q, rubric, ans)
