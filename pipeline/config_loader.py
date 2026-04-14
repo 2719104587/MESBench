@@ -7,6 +7,24 @@ def _get(d: Dict[str, Any], key: str, default: Any) -> Any:
     return d[key] if key in d and d[key] is not None else default
 
 
+def _build_model_config(raw: Dict[str, Any]) -> Dict[str, Any]:
+    raw = raw or {}
+    return {
+        "api_key": _get(raw, "api_key", None),
+        "base_url": _get(raw, "base_url", None),
+        "model_name": _get(raw, "model_name", None),
+        "max_tokens": _get(raw, "max_tokens", 32768),
+        "temperature": _get(raw, "temperature", None),
+        "top_p": _get(raw, "top_p", None),
+        "top_k": _get(raw, "top_k", None),
+        "enable_thinking": _get(raw, "enable_thinking", False),
+        "stream": bool(_get(raw, "stream", True)),
+        "max_retries": _get(raw, "max_retries", 3),
+        "concurrency": _get(raw, "concurrency", 4),
+        "timeout": _get(raw, "timeout", 60.0),
+    }
+
+
 def load_config(path: str) -> Dict[str, Any]:
     cfg: Dict[str, Any] = {}
     if path and os.path.exists(path):
@@ -18,34 +36,20 @@ def load_config(path: str) -> Dict[str, Any]:
     candidate_raw = cfg.get("candidate_model", {}) or {}
     judges_raw = cfg.get("judges", []) or []
 
-    candidate_model = {
-        "api_key": _get(candidate_raw, "api_key", None),
-        "base_url": _get(candidate_raw, "base_url", None),
-        "model_name": _get(candidate_raw, "model_name", None),
-        "max_tokens": _get(candidate_raw, "max_tokens", 32768),
-        "temperature": _get(candidate_raw, "temperature", None),
-        "top_p": _get(candidate_raw, "top_p", None),
-        "enable_thinking": _get(candidate_raw, "enable_thinking", False),
-        "max_retries": _get(candidate_raw, "max_retries", 3),
-        "concurrency": _get(candidate_raw, "concurrency", 4),
-    }
+    candidate_model = _build_model_config(candidate_raw)
+    candidate_model["heavy_think"] = bool(_get(candidate_raw, "heavy_think", False))
+    candidate_model["h_think_times"] = int(_get(candidate_raw, "h_think_times", 1))
+    summary_raw = _get(candidate_raw, "summary_model", None)
+    candidate_model["summary_model"] = (
+        _build_model_config(summary_raw) if isinstance(summary_raw, dict) else None
+    )
 
     judges: List[Dict[str, Any]] = []
     for j in judges_raw:
         j = j or {}
-        judges.append(
-            {
-                "api_key": _get(j, "api_key", None),
-                "base_url": _get(j, "base_url", None),
-                "model_name": _get(j, "model_name", None),
-                "max_tokens": _get(j, "max_tokens", 32768),
-                "temperature": _get(j, "temperature", None),
-                "top_p": _get(j, "top_p", None),
-                "enable_thinking": _get(j, "enable_thinking", False),
-                "max_retries": _get(j, "max_retries", 3),
-                "concurrency": _get(j, "concurrency", 2),
-            }
-        )
+        judge_cfg = _build_model_config(j)
+        judge_cfg["concurrency"] = _get(j, "concurrency", 2)
+        judges.append(judge_cfg)
 
     datasets_config_path = _get(cfg, "datasets_config_path", None)
     module_1_path = _get(cfg, "module_1_path", os.path.join(".", "data", "1专业技术"))

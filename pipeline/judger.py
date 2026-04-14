@@ -1,12 +1,16 @@
 from typing import Any, Dict, List, Optional, Tuple
 import asyncio
 from tqdm import tqdm
-from .llm import retry_llm
+from .llm import async_retry_llm
 from .prompt import format_qa_judge_prompt
 
 
 def _parse_int(s: str) -> Optional[int]:
     try:
+        ## 兼容本地部署的qwen3-235b和deepseek-r1
+        if "</think>\n\n" in s:
+            s = s.split("</think>\n\n")[-1]
+
         s = s.strip()
         digits = "".join(ch for ch in s if ch.isdigit())
         if not digits:
@@ -29,28 +33,28 @@ async def judge_one(
     ans = str(item.get("模型回答") or "")
     prompt = format_qa_judge_prompt(q, rubric, ans, en_mode=en_mode)
 
-    def run():
-        r, c, u = retry_llm(
-            api_key=judge_cfg.get("api_key"),
-            base_url=judge_cfg.get("base_url"),
-            prompt=prompt,
-            model=judge_cfg.get("model_name"),
-            max_tokens=judge_cfg.get("max_tokens") or 1024,
-            temperature=judge_cfg.get("temperature") or 0.0,
-            top_p=judge_cfg.get("top_p") or 0.0,
-            enable_thinking=bool(judge_cfg.get("enable_thinking")),
-            max_retries=judge_cfg.get("max_retries") or 3,
-            timeout=judge_cfg.get("timeout") or 60.0,
-        )
-        return r or "", c or "", u
-
-    r, c, u = await asyncio.to_thread(run)
-    usage_dict = {}
+    r, c, u = await async_retry_llm(
+        api_key=judge_cfg.get("api_key"),
+        base_url=judge_cfg.get("base_url"),
+        prompt=prompt,
+        model=judge_cfg.get("model_name"),
+        max_tokens=judge_cfg.get("max_tokens") or 1024,
+        temperature=judge_cfg.get("temperature") or 0.0,
+        top_p=judge_cfg.get("top_p") or 0.0,
+        top_k=judge_cfg.get("top_k"),
+        enable_thinking=bool(judge_cfg.get("enable_thinking")),
+        stream=bool(judge_cfg.get("stream", True)),
+        max_retries=judge_cfg.get("max_retries") or 3,
+        timeout=judge_cfg.get("timeout") or 60.0,
+    )
+    r = r or ""
+    c = c or ""
+    usage_dict = {"completion_tokens": 0, "prompt_tokens": 0, "total_tokens": 0}
     if u:
         usage_dict = {
-            "completion_tokens": u.completion_tokens,
-            "prompt_tokens": u.prompt_tokens,
-            "total_tokens": u.total_tokens,
+            "completion_tokens": int(u.completion_tokens or 0),
+            "prompt_tokens": int(u.prompt_tokens or 0),
+            "total_tokens": int(u.total_tokens or 0),
         }
     score = _parse_int(c)
     detail = {
@@ -58,6 +62,7 @@ async def judge_one(
         "思考过程": r,
         "模型回答": c,
         "模型回答_int": score,
+        "usage": usage_dict,
     }
     return score, detail, usage_dict
 

@@ -90,28 +90,71 @@ def _safe_rel(rel: str) -> str:
     return rel
 
 
+def _empty_usage() -> Dict[str, int]:
+    return {"completion_tokens": 0, "prompt_tokens": 0, "total_tokens": 0}
+
+
+def _norm_usage(u: Any) -> Dict[str, int]:
+    if not isinstance(u, dict):
+        return {"completion_tokens": 0, "prompt_tokens": 0, "total_tokens": 0}
+    return {
+        "completion_tokens": int((u or {}).get("completion_tokens", 0) or 0),
+        "prompt_tokens": int((u or {}).get("prompt_tokens", 0) or 0),
+        "total_tokens": int((u or {}).get("total_tokens", 0) or 0),
+    }
+
+
+def _merge_usage(base: Dict[str, int], extra: Any) -> Dict[str, int]:
+    x = _norm_usage(extra)
+    base["completion_tokens"] += x["completion_tokens"]
+    base["prompt_tokens"] += x["prompt_tokens"]
+    base["total_tokens"] += x["total_tokens"]
+    return base
+
+
 async def _judge_items_cached(
     items: List[Dict[str, Any]],
     judges: List[Dict[str, Any]],
     result_root: str,
     en_mode: bool,
 ) -> Tuple[List[Optional[float]], Dict[str, Dict[str, int]]]:
+    """
+    对一批题目 items 进行“带磁盘缓存”的评审打分，并返回每题的聚合分数与 token 用量统计。
+
+    缓存设计：
+    - items 来自多个 raw json 文件，函数使用每条样本的 "__source_relpath" 将评审结果按来源文件分片保存；
+    - 每个来源文件对应一个缓存文件：{result_root}/judge/{__source_relpath}；
+    - 缓存文件内容是一个 list[dict]，每个 dict 对应一个题目（用 id 索引），并包含各个 judge 模型的评审详情。
+
+    并发设计：
+    - 对每个 judge 模型单独设置信号量（Semaphore），限制该模型的并发请求数（默认 2，可由 judges[i]["concurrency"] 覆盖）；
+    - 只对“缓存缺失”的 (item, model) 创建异步任务，已完成的直接复用缓存并跳过调用。
+
+    返回：
+    - scores：与 items 等长的列表；每条为多个 judge 给出的 "模型回答_int" 的平均值（若缺失则为 None）
+    - judge_usages：按 model_name 汇总的 token 用量（prompt/completion/total）
+    """
     if not judges:
         return [None for _ in items], {}
 
+    # 按模型统计 token 用量。每次调用 judge_one 返回的 usage 会累计到对应模型。
     judge_usages = {
         j["model_name"]: {"completion_tokens": 0, "prompt_tokens": 0, "total_tokens": 0}
         for j in judges
     }
 
+    # 每个模型独立限流：避免某一个模型在大批量任务中被打爆或触发限速。
     sem_by_model = {
         j["model_name"]: asyncio.Semaphore(max(1, int(j.get("concurrency") or 2)))
         for j in judges
     }
 
+    # 进程内的文件级缓存：避免同一个 judge_fp 反复读写磁盘。
+    # 结构：{judge_fp: {"data": list[dict], "by_id": {id: entry}, "dirty": bool}}
     file_cache: Dict[str, Dict[str, Any]] = {}
 
     def load_file_cache(judge_fp: str) -> Dict[str, Any]:
+        # 读取并解析某个缓存文件；同一进程内重复请求直接命中内存缓存。
         if judge_fp in file_cache:
             return file_cache[judge_fp]
         data: List[Dict[str, Any]] = []
@@ -123,6 +166,7 @@ async def _judge_items_cached(
                     data = [x for x in loaded if isinstance(x, dict)]
             except Exception:
                 data = []
+        # 使用字符串化的 id 建索引，便于从 items 的 id 直接定位缓存条目。
         by_id = {str(x.get("id")): x for x in data if x.get("id") is not None}
         file_cache[judge_fp] = {"data": data, "by_id": by_id, "dirty": False}
         return file_cache[judge_fp]
@@ -130,26 +174,35 @@ async def _judge_items_cached(
     async def run_one_missing(
         it: Dict[str, Any], j: Dict[str, Any], entry: Dict[str, Any]
     ):
+        # 对缓存缺失的一次评审调用：更新 entry 中该模型的 detail 与 usage，并累加全局用量。
         async with sem_by_model[j["model_name"]]:
             s, detail, u = await judge_one(it, j, en_mode=en_mode)
+            normalized_usage = _norm_usage(u)
             entry[j["model_name"]] = detail
-            if u:
-                judge_usages[j["model_name"]]["completion_tokens"] += u.get(
-                    "completion_tokens", 0
-                )
-                judge_usages[j["model_name"]]["prompt_tokens"] += u.get(
-                    "prompt_tokens", 0
-                )
-                judge_usages[j["model_name"]]["total_tokens"] += u.get(
-                    "total_tokens", 0
-                )
+            # usage_details：按模型保存 usage 的细分信息，便于后续回溯与增量合并。
+            usage_details = entry.get("usage_details")
+            if not isinstance(usage_details, dict):
+                usage_details = {}
+            usage_details[j["model_name"]] = normalized_usage
+            entry["usage_details"] = usage_details
+
+            # usage：将 usage_details 中所有模型的 usage 汇总成一个总用量。
+            total_usage = _empty_usage()
+            for model_usage in usage_details.values():
+                _merge_usage(total_usage, model_usage)
+            entry["usage"] = total_usage
+
+            _merge_usage(judge_usages[j["model_name"]], normalized_usage)
             return s
 
+    # missing_tasks：仅为缺失的 (item, model) 创建任务；避免重复评审。
     missing_tasks: List[asyncio.Task] = []
+    # missing_by_rel / total_by_rel：按来源文件统计缺失数与总数，用于提示哪些文件已评完可跳过。
     missing_by_rel: Dict[str, int] = {}
     total_by_rel: Dict[str, int] = {}
 
     for it in items:
+        # "__source_relpath" 来自 _read_all_json；这里会做安全化，防止生成越界路径。
         rel = _safe_rel(str(it.get("__source_relpath") or ""))
         total_by_rel[rel] = total_by_rel.get(rel, 0) + 1
         judge_fp = os.path.join(result_root, "judge", rel)
@@ -157,9 +210,56 @@ async def _judge_items_cached(
         qid = str(it.get("id"))
         entry = cache["by_id"].get(qid)
         if entry is None:
-            entry = {k: v for k, v in it.items() if k != "__source_relpath"}
+            # 缓存文件里没有该题：创建一个基础 entry。
+            # 排除一些运行期字段，避免把中间态/冗余字段写入缓存导致体积膨胀。
+            entry = {
+                k: v
+                for k, v in it.items()
+                if k
+                not in (
+                    "__source_relpath",
+                    "usage",
+                    "usage_details",
+                    "candidate_usage",
+                    "summary_usage",
+                    "heavy_think_content",
+                )
+            }
             cache["data"].append(entry)
             cache["by_id"][qid] = entry
+            cache["dirty"] = True
+
+        # 兼容历史缓存结构：将 entry 中旧字段规范化为 usage_details，并确保只保留本次 judges 列表中的模型。
+        usage_details = entry.get("usage_details")
+        if not isinstance(usage_details, dict):
+            usage_details = {}
+        valid_models = {j["model_name"] for j in judges}
+        usage_details = {
+            k: _norm_usage(v)
+            for k, v in usage_details.items()
+            if k in valid_models and isinstance(v, dict)
+        }
+        changed = False
+        for j in judges:
+            model_name = j["model_name"]
+            if model_name in usage_details and isinstance(usage_details[model_name], dict):
+                usage_details[model_name] = _norm_usage(usage_details[model_name])
+                continue
+            # 部分旧缓存会把 usage 放在 entry[model_name]["usage"]；这里迁移/同步到 usage_details。
+            model_detail = entry.get(model_name)
+            if isinstance(model_detail, dict) and isinstance(model_detail.get("usage"), dict):
+                usage_details[model_name] = _norm_usage(model_detail.get("usage"))
+                changed = True
+        if changed or "usage_details" not in entry:
+            entry["usage_details"] = usage_details
+            cache["dirty"] = True
+
+        # 重新计算总用量 entry["usage"]，保证与 usage_details 一致（用于展示或后续汇总）。
+        total_usage = _empty_usage()
+        for model_usage in usage_details.values():
+            _merge_usage(total_usage, model_usage)
+        if entry.get("usage") != total_usage:
+            entry["usage"] = total_usage
             cache["dirty"] = True
 
         for j in judges:
@@ -167,9 +267,11 @@ async def _judge_items_cached(
             cached = entry.get(model_name)
             cached_score = None
             if isinstance(cached, dict):
+                # 评审结果的核心字段：judge_one 产出的 detail 里应包含 "模型回答_int"（整数分/档位）。
                 cached_score = cached.get("模型回答_int")
             if isinstance(cached_score, int):
                 continue
+            # 缓存缺失：创建异步任务补齐该 (item, model) 的评审详情。
             cache["dirty"] = True
             missing_by_rel[rel] = missing_by_rel.get(rel, 0) + 1
             missing_tasks.append(asyncio.create_task(run_one_missing(it, j, entry)))
@@ -187,9 +289,11 @@ async def _judge_items_cached(
             finally:
                 pbar.update(1)
 
+        # 所有缺失任务并发执行（每个模型仍受 sem_by_model 限流），并用 track 更新进度条。
         await asyncio.gather(*[track(t) for t in missing_tasks])
         pbar.close()
 
+    # 将发生变更的缓存文件写回磁盘：只写 dirty 的，减少 IO。
     for judge_fp, cache in file_cache.items():
         if not cache.get("dirty"):
             continue
@@ -197,6 +301,8 @@ async def _judge_items_cached(
         with open(judge_fp, "w", encoding="utf-8") as f:
             json.dump(cache["data"], f, ensure_ascii=False, indent=2)
 
+    # 生成最终 scores：每题取所有 judges 的 "模型回答_int" 做均值。
+    # 注意：这里不会触发评审调用，只读取缓存（本次已补齐缺失并写回）。
     scores: List[Optional[float]] = []
     for it in items:
         rel = _safe_rel(str(it.get("__source_relpath") or ""))

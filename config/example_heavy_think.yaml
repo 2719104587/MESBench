@@ -7,13 +7,25 @@ candidate_model:
   top_p: null
   top_k: null
   enable_thinking: true
-  heavy_think: false # 新增: 是否开启重度思考模式
-  h_think_times: 1 # 新增: 重度思考模式下，candidate_model并发调用次数
-  summary_model: null # 新增: 重度思考模式下，用于总结的模型配置，如果为null则使用candidate_model配置
   stream: true
   max_retries: 10
   concurrency: 4
   timeout: 300
+  heavy_think: true
+  h_think_times: 3
+  summary_model:
+    api_key: ""
+    base_url: "https://open.bigmodel.cn/api/coding/paas/v4"
+    model_name: "glm-4.7"
+    max_tokens: 64000
+    temperature: null
+    top_p: null
+    top_k: null
+    enable_thinking: true
+    stream: true
+    max_retries: 10
+    concurrency: 4
+    timeout: 300
 
 judges: [
   {

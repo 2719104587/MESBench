@@ -2,7 +2,7 @@ import sys
 import os
 import asyncio
 import argparse
-from typing import List, Dict
+from typing import List, Dict, Optional
 from pipeline.config_loader import load_config
 from pipeline.validator import validate_model
 from pipeline.dataset_loader import parse_selection_file, load_questions
@@ -32,7 +32,7 @@ def main():
     cfg = load_config(cfg_path)
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__)))
 
-    def resolve_project_path(p: str | None) -> str | None:
+    def resolve_project_path(p: Optional[str]) -> Optional[str]:
         if not p:
             return None
         if os.path.isabs(p):

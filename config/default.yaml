@@ -5,7 +5,9 @@ candidate_model:
   max_tokens: 32768
   temperature: null
   top_p: null
+  top_k: null
   enable_thinking: false
+  stream: true
   max_retries: 3
   concurrency: 4
   timeout: 60

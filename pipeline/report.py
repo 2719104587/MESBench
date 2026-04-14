@@ -16,7 +16,7 @@ def _top_bottom(
 def build_report(
     rows: List[Dict[str, Any]],
     totals: Dict[str, float],
-    eval_usage: Dict[str, int],
+    eval_usage: Dict[str, Any],
     judge_usage: Dict[str, Dict[str, int]],
     eval_model_name: str,
 ) -> str:
@@ -31,9 +31,29 @@ def build_report(
     lines.append("")
     lines.append("## Token 消耗统计")
     lines.append(f"### 待评测模型 ({eval_model_name})")
-    lines.append(f"- Completion Tokens: {eval_usage.get('completion_tokens', 0)}")
-    lines.append(f"- Prompt Tokens: {eval_usage.get('prompt_tokens', 0)}")
-    lines.append(f"- Total Tokens: {eval_usage.get('total_tokens', 0)}")
+    
+    if "candidate_usage" in eval_usage:
+        c_u = eval_usage["candidate_usage"]
+        s_u = eval_usage.get("summary_usage", {})
+        
+        lines.append("#### Candidate Model Usage")
+        lines.append(f"- Completion Tokens: {c_u.get('completion_tokens', 0)}")
+        lines.append(f"- Prompt Tokens: {c_u.get('prompt_tokens', 0)}")
+        lines.append(f"- Total Tokens: {c_u.get('total_tokens', 0)}")
+        
+        lines.append("#### Summary Model Usage")
+        lines.append(f"- Completion Tokens: {s_u.get('completion_tokens', 0)}")
+        lines.append(f"- Prompt Tokens: {s_u.get('prompt_tokens', 0)}")
+        lines.append(f"- Total Tokens: {s_u.get('total_tokens', 0)}")
+        
+        lines.append("#### Total Usage (Combined)")
+        lines.append(f"- Completion Tokens: {eval_usage.get('completion_tokens', 0)}")
+        lines.append(f"- Prompt Tokens: {eval_usage.get('prompt_tokens', 0)}")
+        lines.append(f"- Total Tokens: {eval_usage.get('total_tokens', 0)}")
+    else:
+        lines.append(f"- Completion Tokens: {eval_usage.get('completion_tokens', 0)}")
+        lines.append(f"- Prompt Tokens: {eval_usage.get('prompt_tokens', 0)}")
+        lines.append(f"- Total Tokens: {eval_usage.get('total_tokens', 0)}")
 
     lines.append("")
     lines.append("### 裁判模型")
