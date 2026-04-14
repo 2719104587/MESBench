@@ -159,7 +159,6 @@ This section compares models with over 100B parameters, providing both a total-s
 - **Open-source models are highly competitive**: In the detailed >100B results table, Gemini-3-pro-preview ranks first with 76.33. The next two models—Kimi-k2.5 (75.81) and Qwen3.5_397B_A17B (74.06)—are open-source, forming a clear top tier of “one closed-source + two open-source”.
 - **The second tier is tightly clustered with the first**: In the total-score leaderboard, Qwen3-max (Deep Thinking) scores 71.51, followed by GLM-4.7 (Deep Thinking) 70.87, DeepSeek-v3.2 (Deep Thinking) 70.69, Claude-opus-4.5 (Deep Thinking) 70.43, and doubao-seed-1.6 (Deep Thinking) 69.80. The second tier spans only 1.7 points.
 - **Dimension pattern: general is easier than domain-specific**: For most models, “General Comprehensive” is notably higher than “Professional Technology” (e.g., Kimi-k2.5: 81.16 vs 72.59; Gemini: 81.93 vs 72.09), indicating that general reasoning is mature while supervision-specific rules and fine-grained constraints remain the main bottleneck.
-- **Clear laggards exist**: GPT-5.2 scores 62.53 and MiniMax-M2.5 scores 62.92, significantly behind the main pack.
 
 <p align="center">
   <img src="assets/super_large_model_comparison.png" alt="Comparison of Total Scores for Super Large Parameter Models" width="800" />
